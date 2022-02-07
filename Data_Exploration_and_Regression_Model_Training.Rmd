@@ -1,0 +1,683 @@
+---
+title: "Data Exploration and Regression Model Training"
+author: "msc"
+date: "06 01 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(magrittr)
+library(ggplot2)
+library(GGally)
+library(tidyverse)
+library(car)
+library(pander)
+library(MASS)
+library(dplyr)
+```
+
+
+
+
+
+#Auto datasından "mpg01" tahmini
+
+#***Exploration***
+
+```{r}
+
+d2 <- ISLR::Auto
+d2$mpg01 <- factor(as.numeric(d2$mpg > median(d2$mpg)))
+d2$weight01 <- factor(as.numeric(d2$weight > median(d2$weight)))
+d2$origin <- factor(d2$origin)
+d <- d2
+
+d<- relocate(d,mpg01,weight01)
+d <- d[,-11]
+d <- d[,-3]
+d <- d[,-6]
+str(d)
+
+```
+
+```{r}
+head(d)
+```
+
+
+```{r}
+summary(d)
+```
+
+
+
+
+```{r}
+smtr <- function(data, mapping, method="loess", ...){
+      p <- ggplot(data = data, mapping = mapping) +
+      geom_point() +
+      geom_smooth(method=method, ...)
+      p
+    }
+
+
+
+
+ggpairs(d, lower = list(continuous = "cor", combo = "box_no_facet", discrete = "count", na = "na"), upper = list(continuous = smtr, combo = "facethist", discrete = "facetbar", na = "na"))
+```
+
+We see some high correlations between predictors. We will consider to exclude some of them in case of multicollinearity.
+
+
+Now we will check the relation between categorical variables "mpg01" and "weight01"
+
+```{r}
+xtabs(~ mpg01 + weight01, data = d) %>% prop.table() %>% addmargins()
+xtabs(~ mpg01 + weight01, data = d) %>% prop.table(1) %>% addmargins()
+xtabs(~ mpg01 + weight01, data = d) %>% prop.table(2) %>% addmargins()
+
+```
+
+We see the distribution percentages among these two predictors. 
+```{r}
+xtabs(~ mpg01 + weight01, d) %>% summary()
+
+```
+Since p-value is not small, we *cannot* conclude that mpg01 and weight01 variables are NOT independent.
+* eğer p-value küçükse cannotu sil.
+
+Null hypothesis: student and default are independent.
+
+```{r}
+p1 <- ggplot(d, aes(mpg01,cylinders))+
+  geom_boxplot()
+
+p2 <- ggplot(d, aes(mpg01,displacement))+
+  geom_boxplot()
+p3 <- ggplot(d, aes(mpg01,horsepower))+
+  geom_boxplot()
+p4 <- ggplot(d, aes(mpg01,acceleration))+
+  geom_boxplot()
+p5 <- ggplot(d, aes(mpg01,year))+
+  geom_boxplot()
+
+
+
+
+pdp::grid.arrange(p1, p2, p3, p4, p5,
+             ncol = 3, 
+             nrow = 2)
+```
+
+
+```{r}
+g1 <- ggplot(d, aes(cylinders))+
+  geom_density(aes(col = mpg01))
+g2 <- ggplot(d, aes(displacement))+
+  geom_density(aes(col = mpg01))
+g3 <- ggplot(d, aes(horsepower))+
+  geom_density(aes(col = mpg01))
+g4 <- ggplot(d, aes(acceleration))+
+  geom_density(aes(col = mpg01))
+g5 <- ggplot(d, aes(year))+
+  geom_density(aes(col = mpg01))
+
+
+pdp::grid.arrange(g1, g2, g3, g4, g5,
+             ncol = 3, 
+             nrow = 2)
+```
+
+Since origin is categorical too.
+
+```{r}
+xtabs(~ mpg01 + origin, data = d) %>% prop.table() %>% addmargins()
+```
+
+
+
+
+
+#Model
+
+```{r}
+smp_size <- floor(0.75 * nrow(d))
+
+set.seed(555)
+train_ind <- sample(seq_len(nrow(d)), size = smp_size)
+
+d_train <- d[train_ind, ]
+d_test <- d[-train_ind, ]
+
+
+
+
+split(d,rep(1:3, length.out = nrow(d), each = ceiling(nrow(d)/3)))[3]
+
+```
+
+
+# 4- fold manual Cross Validation 
+
+*4 case*
+```{r}
+test_1 <- d[c(1:ceiling(nrow(d)/4)),]
+train_1 <- d[-c(1:ceiling(nrow(d)/4)),]
+
+test_2 <- d[c(ceiling(1+nrow(d)/4):ceiling(nrow(d)/2)),]
+train_2 <- d[-c(ceiling(1+nrow(d)/4):ceiling(nrow(d)/2)),]
+
+test_3 <- d[c(ceiling(1+nrow(d)/2):ceiling(3*nrow(d)/4)),]
+train_3 <- d[-c(ceiling(1+nrow(d)/2):ceiling(3*nrow(d)/4)),]
+
+test_4 <- d[c(ceiling(1+3*nrow(d)/4):nrow(d)),]
+train_4 <- d[-c(ceiling(1+3*nrow(d)/4):nrow(d)),]
+```
+
+
+```{r}
+greater <- 0.15
+
+link <- "logit"
+mod <- (mpg01 ~ weight01 + horsepower + year + origin)
+
+########
+logit_cv <- glm(mod, data = train_1, family = binomial(link = link)) 
+
+predicted_cv<- predict(logit_cv, newdata = test_1, type = "response")
+
+pred_cv <- rep("0", nrow(test_1))
+pred_cv[predicted_cv > greater] <- "1"
+
+error_1 <- mean(pred_cv != test_1$mpg01)
+
+#################
+
+logit_cv2 <- glm(mod, data = train_2, family = binomial(link = link)) 
+
+predicted_cv2<- predict(logit_cv2, newdata = test_2, type = "response")
+
+pred_cv2 <- rep("0", nrow(test_2))
+pred_cv2[predicted_cv2 > greater] <- "1"
+
+error_2 <- mean(pred_cv2 != test_2$mpg01)
+
+
+################
+
+logit_cv3 <- glm(mod, data = train_3, family = binomial(link = link)) 
+
+predicted_cv3<- predict(logit_cv, newdata = test_3, type = "response")
+
+pred_cv3 <- rep("0", nrow(test_3))
+pred_cv3[predicted_cv3 > greater] <- "1"
+
+error_3 <- mean(pred_cv3 != test_3$mpg01)
+
+
+#############
+
+
+logit_cv4 <- glm(mod, data = train_4, family = binomial(link = link)) 
+
+predicted_cv4<- predict(logit_cv4, newdata = test_4, type = "response")
+
+pred_cv4 <- rep("0", nrow(test_4))
+pred_cv4[predicted_cv4 > greater] <- "1"
+
+error_4 <- mean(pred_cv4 != test_4$mpg01)
+
+
+mean(error_1, error_2, error_3, error_4,)
+
+```
+
+We can try different models by changing "mod" and "link" (logit or probit). With this cross validation, we get a better look on the model, and validate it by different sets of data in case of overfitting.
+
+
+
+
+
+
+
+#Power Transform
+
+```{r}
+xd <- d
+res_pt <- powerTransform(xd[,c(3:7)])
+summary(res_pt)
+
+cff <- coef(res_pt, round = TRUE)
+
+xd <- bcPower(xd[,c(3:7)], lambda = coef(res_pt, round = TRUE) * (coef(res_pt, round = TRUE) >= 0))
+xd
+
+
+d_pt <- d %>% mutate(displacement = xd$`displacement^0.33`)
+```
+
+
+
+
+
+
+
+
+```{r}
+logit <- glm(mpg01 ~ ., data = d, family = binomial(link = "logit"))
+probit <- glm(mpg01 ~ ., data = d, family = binomial(link = "probit")) 
+
+summary(logit)
+```
+
+
+
+
+```{r}
+logit_t <- glm(mpg01 ~ ., data = d_train, family = binomial(link = "logit")) 
+
+predicted_logit<- predict(logit_t, newdata = d_test, type = "response")
+
+pred_2 <- rep("0", nrow(d_test))
+pred_2[predicted_logit > 0.4] <- "1"
+
+
+mean(pred_2 != d_test$mpg01)
+```
+Tried different values for "predicted_logit > 0.15". And the least error was found on 0.15. Also the least error was found on "logit" model without step function or interactions.
+
+
+```{r}
+summary(probit)
+```
+
+
+```{r}
+AIC(probit, logit)
+
+```
+
+```{r}
+logit3 <- glm(mpg01 ~ .^2, data = d, family = binomial(link = "logit"))
+
+logit3 <- logit3 %>% step(test = "Chi", trace = FALSE)
+summary(logit3)
+```
+
+
+```{r}
+logit2 <- glm(mpg01 ~ ., data = d, family = binomial(link = "logit")) %>% step(test = "Chi", trace = FALSE)
+summary(logit2)
+```
+
+
+
+
+```{r}
+probit2 <- glm(mpg01 ~ .^2, data = d, family = binomial(link = "probit")) %>% step(test = "Chi", trace = FALSE)
+summary(probit2)
+```
+
+
+```{r}
+AIC(logit2,logit,probit,logit3, probit2)
+```
+
+
+```{r}
+anova(logit2,logit,test = "Chisq")
+```
+H_0 = Small model(working Model) is correct
+H_a = Otherwise
+
+
+```{r}
+predict(logit, type = "response") %>%  head()
+predict(logit) %>%  head() %>% plogis()
+```
+
+```{r}
+logit3_pred <- predict(logit3, type = "response", se.fit = TRUE) 
+
+alpha <- 0.05 # for 95% confidence interval
+tibble(fit = logit3_pred$fit, se = logit3_pred$se.fit) %>% 
+  mutate(lcb = fit - qnorm(1-alpha/2)*se,
+         ucb = fit + qnorm(1-alpha/2)*se) %>% 
+  round(5) %>% 
+  arrange(abs(fit-0.5)) %>% 
+  filter((lcb <=0.5& ucb >=0.5))
+```
+
+```{r}
+logit7 <- glm(mpg01 ~ .-cylinders, data = d, family = binomial(link = "logit"))
+```
+
+
+
+
+#K fold Cross Validation 2
+```{r}
+nfolds <- 10
+folds <- rep(seq(nfolds), len=nrow(d)) %>% sample()
+
+error_array <- rep(NA, nfolds)
+
+for (i in seq(nfolds)){
+  train <- d[folds != i,]
+  test <- d[folds == i,]
+  
+  res <- update(logit2, data = train)
+  
+  error_array[i] <- tibble(pred =predict(res, newdata = test, type = "response")) %>% 
+  mutate(pred_label = ifelse(pred >= 0.15, "Yes", "No"),
+         mpg01 = test$mpg01) %>% 
+  xtabs(~ mpg01 + pred_label, .) %>% 
+  prop.table() %>% 
+  diag() %>% 
+  sum() %>% 
+  {1- .}
+}
+
+(m <- error_array %>% mean())
+(s <- error_array %>% sd() %>% `/` (sqrt(nfolds))) # se for misclassification rate
+m + c(-1,1)*2*s # 95% cı for misclassification rate on unseen data
+
+```
+
+
+
+
+
+
+
+
+# Diagnostics
+
+#Are there influential points? If there are, how does your model change when you remove them (I am not suggesting that you should remove them, but I just want to know how significant they are)?
+
+
+```{r, fig.width=10, fig.asp=1}
+influenceIndexPlot(logit2)
+```
+"
+Largest Cook’s distance is about 0.06 far less than 1. We do not suspect for any influential observations.
+"
+
+```{r}
+logit %>% plot()
+
+```
+""
+*Residuals vs Leverage (cooks distance):*
+
+Influential values are extreme individual data points that can alter the quality of the logistic regression model.
+
+The most extreme values in the data can be examined by visualizing the Cook’s distance values.
+
+Note that, not all outliers are influential observations. To check whether the data contains potential influential observations, the standardized residual error can be inspected. Data points with an absolute standardized residuals above 3 represent possible outliers and may deserve closer attention.
+""
+
+299 seems to be an outlier, since it has large residuals. This outlier is influential since it has potential to lead to model to incorrect inferences. Removing them would change the coefficients if they are influencial.
+"
+observations whose values deviate from the expected range and produce extremely large residuals and may indicate a sample peculiarity is called outliers. These outliers can unduly influence the results of the analysis and lead to incorrect inferences. An observation is said to be influential if removing the observation substantially changes the estimate of coefficients. 
+"
+
+"
+* * There are many values beyond 2 and -2 in the Q-Q plot. High leverage points. Close to Cook`s distance.
+"
+
+**ECEM**
+""
+Residuals vs fitted: we expect cumulated values because the response only takes 2 values. The red curve should stay constant at 0. To compensate for the shortcoming of the residual vs fitted values, we can plot quantile residuals. Use qres() function in statmod package to calculate the quantile residuals and use its plot to check if any meaningful patterns are left. When we see no patterns in the quantile residuals, the systematic part (linear predictor) looks fine.
+
+Normal Q-Q: we expect the lines to be close but for example, if there is large data and few predictors, then we don't expect them to explain the whole data so it is normal to have a large tail.
+
+Scale-location: we don't expect variance to stay constant.
+
+Residuals vs leverage: same as linear regression, to detect influential values (extreme values or outliers) in the continuous predictors you can also use compareCoefs() function and look at the differences. If the difference is low, then there are no influential points.
+""
+
+
+
+
+```{r, fig.width=10, fig.asp=1}
+residualPlots(logit2, type = "rstudent")
+```
+
+#Goodness of fit
+
+**Hosmer-Lemeshow goodness-of-fit test**
+
+```{r}
+m <- 100
+
+HL <- logit2 %>% 
+  fitted() %>% 
+  as_tibble_col(column_name = "fitted") %>% 
+  mutate(fitted_cut = cut(fitted, breaks = c(0,
+                            quantile(fitted, probs = (1:m)/m))),
+         class = d$mpg01) %>% 
+  group_by(fitted_cut) %>% 
+  summarize(mj = n(),
+            nj = sum(class == 1),
+            pbarj = median(fitted), .groups = "drop") %>% 
+  mutate(HLterm = (nj-mj*pbarj)^2/mj/pbarj/(1-pbarj)) %>% 
+  pull(HLterm) %>% 
+  sum()
+
+pchisq(HL, df = m-2, lower.tail = FALSE)
+```
+
+We tried some values of m, and all of their chi squared values were close to 0. Therefore, we reject the working model (logit3) and try another one.
+For the model named "logit", we got high chi square values, which means the working model is consistent on observed data.
+Another observation from this function made was, "probit" model was too consistent on observed data.
+I compared the models in the order of AIC values starting from the smallest. And the smallest AIC valued and got a high chi square value from Hosmer test was "logit2".
+
+
+
+"
+m > (number of predictors + 1) olmali. Kesin bir kurali yok. Ne kadar buyuk olacagi biraz bize kalmis. Kucuk veya buyuk m vermenin avantaj ve dezavantajlari soyle aciklanmis kaynakta: "Small values for m give the test less opportunity to find mis-specifications. Larger values mean that the number of items in each subgroup may be too small to find differences between observed and expected values. Sometimes changing m by very small amounts (e.g. by 1 or 2) can result in wild changes in p-values. As such, the selection for m is often confusing and, semimngly, arbitrary." Fonksiyona default degerler yerine kendi degerlerini girince o da dogru hesapliyor. O kodu anlamayanlar icin koymustum onu da. 
+"
+
+**Linearity Assumption**
+
+```{r}
+#selecting numerical predictors
+d_linear <- d %>% select_if(is.numeric)
+predictors <- colnames(d_linear)
+
+probabilities <- predict(logit2, interval = "confidence",type = "response")
+
+
+d_linear <- d_linear %>% 
+  mutate(logit = log(probabilities/(1-probabilities))) %>% 
+  gather(key = "predictors", value = "predictor.value", -logit)
+
+
+```
+
+```{r}
+ggplot(d_linear, aes(logit, predictor.value))+
+  geom_point(size = 0.9, alpha = 0.5) +
+  geom_smooth(method = "loess") + 
+  theme_bw() + 
+  facet_wrap(~predictors, scales = "free_y")
+```
+All of the variables seem linearly associated with logit output of predicted variable mpg01.
+
+""
+The smoothed scatter plots show that variables glucose, mass, pregnant, pressure and triceps are all quite linearly associated with the diabetes outcome in logit scale.
+
+The variable age and pedigree is not linear and might need some transformations. If the scatter plot shows non-linearity, you need other methods to build the model such as including 2 or 3-power terms, fractional polynomials and spline function
+""
+
+```{r}
+logit2 %>% 
+  summary()
+```
+
+We have AIC value of 167.99 which is the best consistent model so far, so we will continue with it. On logit2 we used step function on logit, which iterates and tries different combinations of logit predictors and tries to find the least chi square value. So we are left with weight01, horsepower, year, and origin predictors.
+
+```{r}
+#effects::predictorEffects(logit2, resid=TRUE) %>% plot(span=1)
+```
+
+
+
+
+
+
+
+
+#Multicollinearity
+
+```{r}
+faraway::vif(logit2) %>% sort %>% rev %>% enframe 
+```
+
+
+
+
+
+
+##Analysis
+
+#Does you model suggest that there is relation between mpg01 and at least one of the other variables? Explain.
+
+
+
+```{r}
+logit2 %>% summary()
+```
+
+We see that weight01, horsepower, year are highly significant for the mpg01 variable. Also the origin variables seems significant to guess the value of mpg01.
+
+
+#For the most significant and least significant main effects in your model, check if they interact on y. Explain.
+
+The least significant is origin and the most significant is weight01 predictors. So we will try to remove them from the model and check if AIC is better or coefficients are different:
+
+```{r}
+res <- update(logit2, . ~ . - weight01) 
+res %>% summary()
+
+```
+
+
+```{r}
+res <- update(logit2, . ~ . - origin) 
+res %>% summary()
+
+```
+
+As we can see from the updated models, weight01 (most significant) predictor changes the model coefficients significantly, on the other hand origin (least significant) does not really changes the coefficients of other predictors. Also when we removed the weight predictor, AIC value significantly increased (167 -> 224), but removing origin increased it with a smaller value (167 -> 176).
+
+
+
+#Predict response mpg01 when horsepower and year are  set their median and weight01 is set to 1. Give 95% prediction intervals.
+
+
+```{r}
+
+pred_data <- data.frame(weight01 = as.factor(1), horsepower= median(d$horsepower), year = median(d$year), origin =as.factor(1))
+
+predict(logit2,pred_data,type = "response")
+
+
+#To find confidence interval
+alpha <- 0.05 #95% confidence interval
+
+res_pred <- predict(logit2,pred_data,type = "response", se.fit = T)
+
+res_pred$fit + c(-1,1)*qnorm(1-alpha/2)*res_pred$se.fit
+```
+
+
+
+How to find quartile falan geçen midtermde çıkan
+
+Exploration yorumu
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Outliers
+
+```{r}
+d_o <- d[-c(297),]
+
+logit_o <- glm(mpg01 ~ ., data = d_o, family = binomial(link = "logit"))
+
+logit_o %>% plot()
+```
+
+
+
+
+```{r}
+anova(logit,logit2)
+```
+
+#Multicollinearity
+
+```{r}
+car::vif(logit) %>% sort %>% rev %>% enframe 
+```
+
+#Confusion Matrix
+
+```{r}
+library(modelr)
+d %>% 
+  add_predictions(logit2, type = "response") %>% 
+  mutate(predclass = ifelse(pred >=  0.15, "1", "0")) %>% 
+  xtabs(~ + mpg01 + predclass, .)
+```
+*Not pred> 0.5 duruma göre değiştirilebilir.*
+
+
+#Lasso with cross validation logistic
+```{r}
+
+x <- model.matrix(mpg01 ~ ., d_train)[,-1]
+y <- d_train$mpg01
+
+
+library(glmnet)
+# Find the best lambda using cross-validation
+set.seed(123) 
+cv.lasso <- cv.glmnet(x, y, alpha = 0, family = "binomial")
+# Fit the final model on the training data
+model <- glmnet(x, y, alpha = 0, family = "binomial",
+                lambda = cv.lasso$lambda.min)
+# Display regression coefficients
+coef(model)
+# Make predictions on the test data
+x.test <- model.matrix(mpg01 ~., d_test)[,-1]
+probabilities <- model %>% predict(newx = x.test)
+predicted.classes <- ifelse(probabilities > 0.5, "1", "0")
+# Model accuracy
+observed.classes <- d_test$mpg01
+mean(predicted.classes != observed.classes)
+```
+
+
+
+
+
+
+
