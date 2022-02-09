@@ -25,7 +25,7 @@ library(dplyr)
 
 
 
-#Auto datasından "mpg01" tahmini
+#from ISLR::Auto data: guess -> "mpg01" 
 
 #***Exploration***
 
